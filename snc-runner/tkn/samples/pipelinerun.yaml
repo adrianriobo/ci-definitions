@@ -5,26 +5,25 @@ metadata:
   generateName: crc-ocp-4.17.0-rc.5-arm64-
 spec:
   pipelineRef:
-    resolver: bundles 
+    resolver: git
     params:
-    - name: bundle
-      value: ghcr.io/crc-org/ci-snc-runner:pr-29-tkn
-    - name: name
-      value: snc-builder
-    - name: kind
-      value: pipeline
-  
+      - name: url
+        value: https://github.com/crc-org/ci-definitions.git
+      - name: revision
+        value: main
+      - name: pathInRepo
+        value: snc-runner/tkn/pipeline.yaml
   params:
-  - name: arch
-    value: arm64
-  - name: ocp-index-url
-    value: https://mirror.openshift.com/pub/openshift-v4/arm64/clients/ocp/4.17.0-rc.5
-  - name: snc-ref
-    value: release-4.17
-  - name: ocp-extended-cert
-    value: enabled
-  - name: debug
-    value: 'true'
+    - name: arch
+      value: arm64
+    - name: ocp-index-url
+      value: https://mirror.openshift.com/pub/openshift-v4/arm64/clients/ocp/4.17.0-rc.5
+    - name: snc-ref
+      value: release-4.17
+    - name: ocp-extended-cert
+      value: enabled
+    - name: debug
+      value: 'true'
   workspaces:
     - name: storage
       persistentVolumeClaim:

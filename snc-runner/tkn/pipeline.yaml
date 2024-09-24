@@ -4,7 +4,7 @@ kind: Pipeline
 metadata:
   name: snc-builder
   labels:
-    app.kubernetes.io/version: "cversion"
+    app.kubernetes.io/version: "v2.0.0-dev"
     redhat.com/product: openshift-local
     dev.lifecycle.io/phase: build
     openshift-local.redhat.com/component: bundle
@@ -172,9 +172,11 @@ spec:
         resolver: git
         params:
           - name: url
-            value: https://github.com/crc-org/ci-definitions.git
+            # value: https://github.com/crc-org/ci-definitions.git
+            value: https://github.com/adrianriobo/ci-definitions
           - name: revision
-            value: snc-runner-cversion
+            # value: snc-runner-v2.0.0-dev
+            value: fix-28
           - name: pathInRepo
             value: snc-runner/tkn/task.yaml
       params:
