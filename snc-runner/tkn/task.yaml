@@ -77,7 +77,8 @@ spec:
   steps:
     - name: runner
       # quay.io/crc-org/ci-snc-runner and v2.0.0-dev values should be passed to the template
-      image: quay.io/crc-org/ci-snc-runner:v2.0.0-dev
+      # image: quay.io/crc-org/ci-snc-runner:v2.0.0-dev
+      image: ghcr.io/crc-org/ci-snc-runner:pr-29
       imagePullPolicy: Always
       script: |
         #!/bin/bash
