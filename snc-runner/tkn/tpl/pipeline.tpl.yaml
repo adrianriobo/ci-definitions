@@ -1,0 +1,254 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: snc-builder
+  labels:
+    app.kubernetes.io/version: "cversion"
+    redhat.com/product: openshift-local
+    dev.lifecycle.io/phase: build
+    openshift-local.redhat.com/component: bundle
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.44.x"
+    tekton.dev/categories: bundle
+    tekton.dev/tags: openshift-local, bundle
+    tekton.dev/displayName: "openshift local bundle"
+    tekton.dev/platforms: "linux/amd64"
+spec:
+  description: >-
+    This pipeline will bundles for Openshift Local:
+
+    * bundles for all platforms and store them on an s3 compatible storage
+
+  workspaces:
+    - name: storage
+    - name: aws-credentials
+      description: |
+        ocp secret holding the aws credentials. Secret should be accessible to this task.
+
+        ---
+        apiVersion: v1
+        kind: Secret
+        metadata:
+          name: aws-${name}
+          labels:
+            app.kubernetes.io/component: ${name}
+            app.kubernetes.io/part-of: qe-platform
+        type: Opaque
+        data:
+          access-key: ${access_key}
+          secret-key: ${secret_key}
+          region: ${region}
+    - name: rh-account-secret
+      description: |
+        ocp secret holding the credentials for a valid rh user to subscribe VM. Secret should be accessible to this task.
+
+        Sample format for valid Secret
+        ---
+        apiVersion: v1
+        kind: Secret
+        metadata:
+          name: credentials-${configname}
+        type: Opaque
+        data:
+          user: ${user}
+          password: ${password}
+    - name: ocp-pullsecret
+      description: |
+        crc secret name holding the pullsecret. This is only required if backed tested is crc preset
+
+        secret should match following format:
+        ---
+        apiVersion: v1
+        kind: Secret
+        metadata:
+          name: ${secret-name}
+        type: Opaque
+        data:
+          pullsecret: ${pullsecret-value}
+  
+  params:
+    - name: arch
+      description: arch for binaries x86_64 or arm64
+      default: x86_64
+    - name: runner-host-version
+      description: Set the RHEL os version for snc-runner.
+      default: '9.4'
+    - name: bundle-type
+      description: bundle to be built (openshift or microshift)
+      default: openshift
+    - name: snc-scm
+      description: repository for snc project
+      default: 'https://github.com/code-ready/snc.git'
+    - name: snc-ref
+      description: repository ref for snc project
+      default: master
+    - name: snc-pullrequest
+      description: in case bundle build from PR
+      default: "''"  
+    - name: ocp-index-url
+      description: full url to download assets for an specific ocp version. Format base_url/ocp-version
+      default: "''"  
+    - name: ocp-extended-cert
+      description: this param controls if apply patched images for KAO and KMCO to extend cert duration. Valid values are disabled or enabled
+      default: disabled
+    - name: s3-data-secret
+      default: datalake-aws
+    - name: s3-bucket
+      default: crcqe-asia
+    - name: s3-folder-path
+      default: nightly/ocp
+    # Control
+    - name: debug
+      type: string
+      description: control verbosity and keep instances after run for troubleshooting. 
+      default: "false"
+  
+  tasks:
+    - name: correlate
+      taskRef:
+        name: gather-run-info
+      workspaces:
+        - name: pipelines-data
+          workspace: storage
+    - name: ocp-info
+      taskRef:
+        name: gather-ocp-info
+      params:
+        - name: ocp-index-url
+          value: $(params.ocp-index-url) 
+    - name: s3-info
+      taskRef:
+        name: gather-s3-info    
+      params:
+        - name: s3-data-secret
+          value: $(params.s3-data-secret) 
+        - name: bucket
+          value: $(params.s3-bucket) 
+        - name: folder-path
+          value: $(params.s3-folder-path)/$(tasks.ocp-info.results.ocp-version)
+    - name: provision-snc-runner
+      runAfter:
+        - s3-info 
+        - ocp-info
+        - correlate
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/redhat-developer/mapt.git
+          - name: revision
+            value: v0.6.9
+          - name: pathInRepo
+            value: tkn/infra-aws-rhel.yaml
+      retries: 3
+      params:
+        - name: project-name
+          value: crc-snc-runner-$(tasks.correlate.results.correlation)
+        - name: operation
+          value: create
+        - name: arch
+          value: $(params.arch)
+        - name: version
+          value: $(params.runner-host-version)
+        - name: ws-output-path
+          value: infra/crc-snc-runner/$(tasks.correlate.results.correlation)
+        - name: profile-snc
+          value: 'true'
+        - name: debug
+          value: $(params.debug)
+      workspaces:
+        - name: storage
+          workspace: storage
+        - name: aws-credentials
+          workspace: aws-credentials
+        - name: rh-account-secret
+          workspace: rh-account-secret
+      timeout: "45m" 
+    - name: build-bundle
+      runAfter:
+        - provision-snc-runner
+      taskRef:
+        resolver: bundles 
+        params:
+        - name: bundle
+          value: ghcr.io/crc-org/ci-snc-runner:pr-29-tkn
+        - name: name
+          value: crc-snc-runner
+        - name: kind
+          value: task
+      # taskRef:
+      #   resolver: git
+      #   params:
+      #     - name: url
+      #       value: https://github.com/crc-org/ci-definitions.git
+      #     - name: revision
+      #       value: snc-runner-vcversion
+      #     - name: pathInRepo
+      #       value: snc-runner/tkn/task.yaml
+      params:
+      - name: workspace-resources-path
+        value: infra/crc-snc-runner/$(tasks.correlate.results.correlation)
+      - name: host
+        value: $(tasks.provision-snc-runner.results.host)
+      - name: username
+        value: $(tasks.provision-snc-runner.results.username)
+      - name: key
+        value: $(tasks.provision-snc-runner.results.key)
+      - name: scm
+        value: $(params.snc-scm) 
+      - name: ref
+        value: $(params.snc-ref) 
+      - name: pr
+        value: $(params.snc-pullrequest) 
+      - name: ocp-version
+        value: $(tasks.ocp-info.results.ocp-version)
+      - name: ocp-mirror
+        value: $(tasks.ocp-info.results.ocp-mirror)
+      - name: ocp-extended-cert
+        value: $(params.ocp-extended-cert)
+      - name: s3-url
+        value: $(tasks.s3-info.results.upload-url)
+      - name: s3-access-key
+        value: $(tasks.s3-info.results.access-key)
+      - name: s3-secret-key
+        value: $(tasks.s3-info.results.secret-key)
+      - name: s3-path
+        value: $(tasks.s3-info.results.upload-path)
+      - name: debug
+        value: $(params.debug) 
+      workspaces:
+      - name: storage
+        workspace: storage
+      - name: ocp-pullsecret
+        workspace: ocp-pullsecret
+      timeout: "185m" 
+  finally:
+    - name: decomission-snc-runner
+      taskRef:
+        resolver: git
+        params:
+          - name: url
+            value: https://github.com/redhat-developer/mapt.git
+          - name: revision
+            value: v0.6.9
+          - name: pathInRepo
+            value: tkn/infra-aws-rhel.yaml
+      params:
+        - name: project-name
+          value: crc-snc-runner-$(tasks.correlate.results.correlation)
+        - name: operation
+          value: destroy
+        - name: ws-output-path
+          value: infra/crc-snc-runner/$(tasks.correlate.results.correlation)
+        - name: debug
+          value: $(params.debug)
+      workspaces:
+      - name: storage
+        workspace: storage
+      - name: aws-credentials
+        workspace: aws-credentials
+      - name: rh-account-secret
+        workspace: rh-account-secret
+      timeout: "45m" 
+   
