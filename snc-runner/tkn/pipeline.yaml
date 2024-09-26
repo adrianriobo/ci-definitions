@@ -289,16 +289,16 @@ spec:
                       value: tkn/infra-aws-rhel.yaml
                 params:
                   - name: project-name
-                    value: crc-snc-runner-$(params.correlation)
+                    value: ci-snc-runner-$(params.correlation)
                   - name: operation
                     value: destroy
                   - name: ws-output-path
-                    value: infra/crc-snc-runner/$(params.correlation)
+                    value: ci-snc-runner/$(params.correlation)
                   - name: debug
                     value: 'true'
                 workspaces:
                   - name: storage
-                    workspace: $(params.ws-$(params.correlation))
+                    workspace: $(params.ws-storage)
                   - name: aws-credentials
                     workspace: $(params.ws-aws-credentials)
                   - name: rh-account-secret
