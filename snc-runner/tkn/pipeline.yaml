@@ -307,7 +307,7 @@ spec:
               EOF
       params:
         - name: correlate
-          value: $(tasks.correlate.results.correlation)
+          value: $(tasks.preparer.results.correlation)
         - name: ws-storage
           value: storage
         - name: ws-aws-credentials
