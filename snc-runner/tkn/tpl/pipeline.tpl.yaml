@@ -22,6 +22,22 @@ spec:
 
   workspaces:
     - name: storage
+    - name: s3-credentials
+      description: |
+        ocp secret holding the s3 credentials. Secret should be accessible to this task.
+        ---
+        apiVersion: v1
+        kind: Secret
+        metadata:
+          name: XXXX
+          labels:
+            app.kubernetes.io/component: XXXX
+        type: Opaque
+        data:
+          download-url: ${download_url}  
+          upload-url: ${upload_url}  
+          access-key: ${access_key}
+          secret-key: ${secret_key}
     - name: aws-credentials
       description: |
         ocp secret holding the aws credentials. Secret should be accessible to this task.
@@ -30,10 +46,9 @@ spec:
         apiVersion: v1
         kind: Secret
         metadata:
-          name: aws-${name}
+          name: XXXX
           labels:
-            app.kubernetes.io/component: ${name}
-            app.kubernetes.io/part-of: qe-platform
+            app.kubernetes.io/component: XXXX
         type: Opaque
         data:
           access-key: ${access_key}
@@ -75,7 +90,7 @@ spec:
       description: Set the RHEL os version for snc-runner.
       default: '9.4'
     - name: bundle-type
-      description: bundle to be built (openshift or microshift)
+      description: bundle to be built (openshift, microshift or okd)
       default: openshift
     - name: snc-scm
       description: repository for snc project
@@ -92,12 +107,8 @@ spec:
     - name: ocp-extended-cert
       description: this param controls if apply patched images for KAO and KMCO to extend cert duration. Valid values are disabled or enabled
       default: disabled
-    - name: s3-data-secret
-      default: datalake-aws
-    - name: s3-bucket
-      default: crcqe-asia
-    - name: s3-folder-path
-      default: nightly/ocp
+    - name: s3-path
+      default: crc-bundle
     # Control
     - name: debug
       type: string
@@ -105,33 +116,30 @@ spec:
       default: "false"
   
   tasks:
-    - name: correlate
-      taskRef:
-        name: gather-run-info
-      workspaces:
-        - name: pipelines-data
-          workspace: storage
-    - name: ocp-info
-      taskRef:
-        name: gather-ocp-info
+    - name: preparer
+      taskSpec:
+        description: This task will prepare the environment and data for being used within the pipeline
+        params:
+          - name: ocp-index-url
+        results:
+          - name: correlation
+          - name: ocp-version
+          - name: ocp-mirror 
+        steps:
+          - name: preparer
+            image: registry.access.redhat.com/ubi9/ubi-minimal
+            script: |
+              #!/bin/sh
+              echo -n $RANDOM$RANDOM | tee $(results.correlation.path)
+              index_url=$(params.ocp-index-url)
+              echo -n ${index_url##*/} | tee $(results.ocp-version.path)
+              echo -n ${index_url/\/$version/''} | tee $(results.ocp-mirror.path)
       params:
         - name: ocp-index-url
           value: $(params.ocp-index-url) 
-    - name: s3-info
-      taskRef:
-        name: gather-s3-info    
-      params:
-        - name: s3-data-secret
-          value: $(params.s3-data-secret) 
-        - name: bucket
-          value: $(params.s3-bucket) 
-        - name: folder-path
-          value: $(params.s3-folder-path)/$(tasks.ocp-info.results.ocp-version)
     - name: provision-snc-runner
       runAfter:
-        - s3-info 
-        - ocp-info
-        - correlate
+        - preparer
       taskRef:
         resolver: git
         params:
@@ -141,10 +149,9 @@ spec:
             value: v0.6.9
           - name: pathInRepo
             value: tkn/infra-aws-rhel.yaml
-      retries: 3
       params:
         - name: project-name
-          value: crc-snc-runner-$(tasks.correlate.results.correlation)
+          value: ci-snc-runner-$(tasks.preparer.results.correlation)
         - name: operation
           value: create
         - name: arch
@@ -152,7 +159,7 @@ spec:
         - name: version
           value: $(params.runner-host-version)
         - name: ws-output-path
-          value: infra/crc-snc-runner/$(tasks.correlate.results.correlation)
+          value: ci-snc-runner/$(tasks.preparer.results.correlation)
         - name: profile-snc
           value: 'true'
         - name: debug
@@ -179,7 +186,7 @@ spec:
             value: snc-runner/tkn/task.yaml
       params:
       - name: workspace-resources-path
-        value: infra/crc-snc-runner/$(tasks.correlate.results.correlation)
+        value: ci-snc-runner/$(tasks.preparer.results.correlation)
       - name: host
         value: $(tasks.provision-snc-runner.results.host)
       - name: username
@@ -193,29 +200,29 @@ spec:
       - name: pr
         value: $(params.snc-pullrequest) 
       - name: ocp-version
-        value: $(tasks.ocp-info.results.ocp-version)
+        value: $(tasks.preparer.results.ocp-version)
       - name: ocp-mirror
-        value: $(tasks.ocp-info.results.ocp-mirror)
+        value: $(tasks.preparer.results.ocp-mirror)
       - name: ocp-extended-cert
         value: $(params.ocp-extended-cert)
-      - name: s3-url
-        value: $(tasks.s3-info.results.upload-url)
-      - name: s3-access-key
-        value: $(tasks.s3-info.results.access-key)
-      - name: s3-secret-key
-        value: $(tasks.s3-info.results.secret-key)
       - name: s3-path
-        value: $(tasks.s3-info.results.upload-path)
+        value: $(params.s3-path)/$(tasks.preparer.results.ocp-version)
       - name: debug
         value: $(params.debug) 
       workspaces:
       - name: storage
         workspace: storage
+      - name: s3-credentials
+        workspace: s3-credentials
       - name: ocp-pullsecret
         workspace: ocp-pullsecret
       timeout: "185m" 
   finally:
     - name: decomission-snc-runner
+      when:
+        - input: $(params.debug)
+          operator: in
+          values: ["false"]
       taskRef:
         resolver: git
         params:
@@ -227,11 +234,11 @@ spec:
             value: tkn/infra-aws-rhel.yaml
       params:
         - name: project-name
-          value: crc-snc-runner-$(tasks.correlate.results.correlation)
+          value: ci-snc-runner-$(tasks.preparer.results.correlation)
         - name: operation
           value: destroy
         - name: ws-output-path
-          value: infra/crc-snc-runner/$(tasks.correlate.results.correlation)
+          value: ci-snc-runner/$(tasks.preparer.results.correlation)
         - name: debug
           value: $(params.debug)
       workspaces:
@@ -241,5 +248,65 @@ spec:
         workspace: aws-credentials
       - name: rh-account-secret
         workspace: rh-account-secret
-      timeout: "45m" 
-   
+      timeout: "20m" 
+    - name: print-decomission
+      when:
+        - input: $(params.debug)
+          operator: in
+          values: ["true"]
+      taskSpec:
+        params:
+          - name: correlation
+          - name: ws-storage
+          - name: ws-aws-credentials
+          - name: ws-rh-account-secret
+        steps:
+          - name: print
+            image: registry.access.redhat.com/ubi9/ubi-minimal
+            script: |
+              #!/bin/sh
+              cat <<EOF > /tmp/daily-run/pipelinerun.yaml
+              ---
+              apiVersion: tekton.dev/v1beta1
+              kind: TaskRun
+              metadata:
+                generateName: decomission-snc-runner-$(params.correlation)
+              spec:
+                tasRef:
+                  resolver: git
+                  params:
+                    - name: url
+                      value: https://github.com/redhat-developer/mapt.git
+                    - name: revision
+                      value: v0.6.9
+                    - name: pathInRepo
+                      value: tkn/infra-aws-rhel.yaml
+                params:
+                  - name: project-name
+                    value: crc-snc-runner-$(params.correlation)
+                  - name: operation
+                    value: destroy
+                  - name: ws-output-path
+                    value: infra/crc-snc-runner/$(params.correlation)
+                  - name: debug
+                    value: 'true'
+                workspaces:
+                  - name: storage
+                    workspace: $(params.ws-$(params.correlation))
+                  - name: aws-credentials
+                    workspace: $(params.ws-aws-credentials)
+                  - name: rh-account-secret
+                    workspace: $(params.ws-rh-account-secret)
+                timeout: "20m" 
+              EOF
+      params:
+        - name: correlate
+          value: $(tasks.preparer.results.correlation)
+        - name: ws-storage
+          value: storage
+        - name: ws-aws-credentials
+          value: aws-credentials
+        - name: ws-rh-account-secret
+          value: rh-account-secret
+      
+
