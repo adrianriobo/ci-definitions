@@ -306,7 +306,7 @@ spec:
                 timeout: "20m" 
               EOF
       params:
-        - name: correlate
+        - name: correlation
           value: $(tasks.preparer.results.correlation)
         - name: ws-storage
           value: storage
