@@ -83,6 +83,7 @@ spec:
           pullsecret: ${pullsecret-value}
   
   params:
+    # SNC runner params
     - name: arch
       description: arch for binaries x86_64 or arm64
       default: x86_64
@@ -92,6 +93,7 @@ spec:
     - name: bundle-type
       description: bundle to be built (openshift, microshift or okd)
       default: openshift
+    # SNC repo params
     - name: snc-scm
       description: repository for snc project
       default: 'https://github.com/code-ready/snc.git'
@@ -101,13 +103,15 @@ spec:
     - name: snc-pullrequest
       description: in case bundle build from PR
       default: "''"  
+    # OCP params
     - name: ocp-index-url
       description: full url to download assets for an specific ocp version. Format base_url/ocp-version
       default: "''"  
     - name: ocp-extended-cert
       description: this param controls if apply patched images for KAO and KMCO to extend cert duration. Valid values are disabled or enabled
       default: disabled
-    - name: s3-path
+    # Destination params
+    - name: s3-bundles-path
       default: crc-bundle
     # Control
     - name: debug
@@ -206,7 +210,7 @@ spec:
       - name: ocp-extended-cert
         value: $(params.ocp-extended-cert)
       - name: s3-path
-        value: $(params.s3-path)/$(tasks.preparer.results.ocp-version)
+        value: $(params.s3-bundles-path)/$(tasks.preparer.results.ocp-version)
       - name: debug
         value: $(params.debug) 
       workspaces:
