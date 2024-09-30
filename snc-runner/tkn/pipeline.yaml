@@ -187,7 +187,7 @@ spec:
             value: https://github.com/adrianriobo/ci-definitions
           - name: revision
             # value: snc-runner-v2.0.0-dev
-            value: fix-28
+            value: fix-28-bk
           - name: pathInRepo
             value: snc-runner/tkn/task.yaml
       params:
